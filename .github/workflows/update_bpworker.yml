@@ -36,7 +36,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SOURCE_REPO_OWNER: "bia-pain-bache" # 替换为源仓库的用户名
           SOURCE_REPO_NAME: "BPB-Worker-Panel" # 替换为源仓库的名称
-          ASSET_NAME: "_worker.js"
+          ASSET_NAME: "worker.js"
         run: |
           python <<EOF
           import requests
@@ -71,15 +71,15 @@ jobs:
         if: steps.get_url.outputs.asset_url
         run: |
           asset_url="${{ steps.get_url.outputs.asset_url }}"
-          filename="worker.js"
+          filename="_worker.js"
           curl -L -o "$filename" "$asset_url"
           echo "::set-output name=local_path::$filename"
 
-      - name: Get current worker.js SHA
+      - name: Get current _worker.js SHA
         id: get_sha
         if: steps.download_file.outputs.local_path
         run: |
-          filepath="${{ github.workspace }}/worker.js"
+          filepath="${{ github.workspace }}/_worker.js"
           if [[ -f "$filepath" ]]; then
             sha=$(git ls-files --stage "$filepath" | awk '{print $2}')
             echo "::set-output name=current_sha::$sha"
@@ -91,7 +91,7 @@ jobs:
         if: steps.download_file.outputs.local_path
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_FILE_PATH: "worker.js" # 你希望在目标仓库中保存的文件路径和名称
+          TARGET_FILE_PATH: "_worker.js" # 你希望在目标仓库中保存的文件路径和名称
         run: |
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
@@ -99,9 +99,9 @@ jobs:
           if [[ -f "$TARGET_FILE_PATH" ]]; then
             git add "$TARGET_FILE_PATH"
             if [[ -z "${{ steps.get_sha.outputs.current_sha }}" ]]; then
-              commit_message="Add worker.js from latest release"
+              commit_message="Add _worker.js from latest release"
             else
-              commit_message="Update worker.js from latest release"
+              commit_message="Update _worker.js from latest release"
             fi
             git commit -m "$commit_message" || echo "No changes to commit"
             git push origin HEAD:${{ github.ref_name }}

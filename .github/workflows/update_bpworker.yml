@@ -1,0 +1,110 @@
+name: Update Worker.js from Source Repo
+
+on:
+  workflow_dispatch: # 允許手動觸發
+  repository_dispatch:
+    types: [new_release_published] # 可以通过 repository_dispatch 触发
+  release:
+    types: [published] # 在源仓库发布新 release 时触发
+  schedule:
+    - cron: '0 0 * * *' # 可选：每天凌晨 00:00 检查一次
+
+jobs:
+  update_worker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # 默认的 GITHUB_TOKEN 具有写入权限
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests PyGithub
+
+      - name: Get latest release asset URL
+        id: get_url
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_REPO_OWNER: "bia-pain-bache" # 替换为源仓库的用户名
+          SOURCE_REPO_NAME: "BPB-Worker-Panel" # 替换为源仓库的名称
+          ASSET_NAME: "worker.js"
+        run: |
+          python <<EOF
+          import requests
+          import os
+          github_token = os.environ.get("GITHUB_TOKEN")
+          owner = os.environ.get("SOURCE_REPO_OWNER")
+          repo_name = os.environ.get("SOURCE_REPO_NAME")
+          asset_name = os.environ.get("ASSET_NAME")
+          api_url = f"https://api.github.com/repos/{owner}/{repo_name}/releases/latest"
+          headers = {'Authorization': f'token {github_token}'}
+          try:
+            response = requests.get(api_url, headers=headers)
+            response.raise_for_status()
+            release_info = response.json()
+            assets = release_info.get('assets', [])
+            download_url = None
+            for asset in assets:
+              if asset['name'] == asset_name:
+                download_url = asset['browser_download_url']
+                break
+            if download_url:
+              print(f"::set-output name=asset_url::{download_url}")
+            else:
+              print(f"::warning::未在最新 release 中找到 ${asset_name} 文件。")
+          except requests.exceptions.RequestException as e:
+            print(f"::error::获取最新 release 信息时发生错误: ${e}")
+            exit(1)
+          EOF
+
+      - name: Download worker.js
+        id: download_file
+        if: steps.get_url.outputs.asset_url
+        run: |
+          asset_url="${{ steps.get_url.outputs.asset_url }}"
+          filename="worker.js"
+          curl -L -o "$filename" "$asset_url"
+          echo "::set-output name=local_path::$filename"
+
+      - name: Get current worker.js SHA
+        id: get_sha
+        if: steps.download_file.outputs.local_path
+        run: |
+          filepath="${{ github.workspace }}/worker.js"
+          if [[ -f "$filepath" ]]; then
+            sha=$(git ls-files --stage "$filepath" | awk '{print $2}')
+            echo "::set-output name=current_sha::$sha"
+          else
+            echo "::set-output name=current_sha::"
+          fi
+
+      - name: Commit and push changes
+        if: steps.download_file.outputs.local_path
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET_FILE_PATH: "worker.js" # 你希望在目标仓库中保存的文件路径和名称
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          TARGET_FILE_PATH="${{ env.TARGET_FILE_PATH }}"
+          if [[ -f "$TARGET_FILE_PATH" ]]; then
+            git add "$TARGET_FILE_PATH"
+            if [[ -z "${{ steps.get_sha.outputs.current_sha }}" ]]; then
+              commit_message="Add worker.js from latest release"
+            else
+              commit_message="Update worker.js from latest release"
+            fi
+            git commit -m "$commit_message" || echo "No changes to commit"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "下载的 worker.js 文件不存在，无法提交。"
+          fi

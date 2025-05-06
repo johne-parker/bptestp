@@ -37,6 +37,7 @@ jobs:
           SOURCE_REPO_OWNER: "bia-pain-bache" # 替换为源仓库的用户名
           SOURCE_REPO_NAME: "BPB-Worker-Panel" # 替换为源仓库的名称
           ASSET_NAME: "worker.js"
+          GITHUB_OUTPUT: ${{ github.output }} # 声明使用 Environment Files
         run: |
           python <<EOF
           import requests
@@ -58,7 +59,8 @@ jobs:
                 download_url = asset['browser_download_url']
                 break
             if download_url:
-              print(f"::set-output name=asset_url::{download_url}")
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
+                print(f"asset_url={download_url}", file=fh)
             else:
               print(f"::warning::未在最新 release 中找到 ${asset_name} 文件。")
           except requests.exceptions.RequestException as e:
@@ -69,22 +71,27 @@ jobs:
       - name: Download worker.js
         id: download_file
         if: steps.get_url.outputs.asset_url
+        env:
+          GITHUB_OUTPUT: ${{ github.output }} # 声明使用 Environment Files
         run: |
           asset_url="${{ steps.get_url.outputs.asset_url }}"
           filename="_worker.js"
           curl -L -o "$filename" "$asset_url"
-          echo "::set-output name=local_path::$filename"
+          echo "local_path=$filename" >> "$GITHUB_OUTPUT"
 
       - name: Get current _worker.js SHA
         id: get_sha
         if: steps.download_file.outputs.local_path
+        env:
+          GITHUB_OUTPUT: ${{ github.output }} # 声明使用 Environment Files
         run: |
           filepath="${{ github.workspace }}/_worker.js"
           if [[ -f "$filepath" ]]; then
             sha=$(git ls-files --stage "$filepath" | awk '{print $2}')
-            echo "::set-output name=current_sha::$sha"
+            echo "current_sha=$sha" >> "$GITHUB_OUTPUT"
           else
-            echo "::set-output name=current_sha::"
+            echo "current_sha=" >> "$GITHUB_OUTPUT"
+
           fi
 
       - name: Commit and push changes
